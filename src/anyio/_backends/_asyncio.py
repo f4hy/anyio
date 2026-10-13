@@ -2712,8 +2712,6 @@ class AsyncIOBackend(AsyncBackend):
         abandon_on_cancel: bool = False,
         limiter: BaseCapacityLimiter | None = None,
     ) -> T_Retval:
-        await cls.checkpoint()
-
         # If this is the first run in this event loop thread, set up the necessary
         # variables
         try:
