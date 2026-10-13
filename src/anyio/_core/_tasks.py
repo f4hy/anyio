@@ -10,11 +10,14 @@ from contextlib import contextmanager
 from enum import Enum, auto
 from inspect import iscoroutine
 from types import TracebackType
-from typing import Any, Generic, final
+from typing import TYPE_CHECKING, Any, Generic, final
 
 from ..abc import TaskGroup, TaskStatus
 from ._eventloop import get_async_backend, get_cancelled_exc_class
 from ._exceptions import TaskCancelled, TaskFailed, TaskNotFinished
+
+if TYPE_CHECKING:
+    from ._synchronization import Event
 
 if sys.version_info >= (3, 13):
     from typing import TypeVar
@@ -290,6 +293,7 @@ class TaskHandle(Generic[T_co, T_startval_co]):
         "_cancel_scope",
         "_coro",
         "_exception",
+        "_finished",
         "_finished_event",
         "_name",
         "_return_value",
@@ -305,11 +309,11 @@ class TaskHandle(Generic[T_co, T_startval_co]):
         name: object,
         cancel_scope: CancelScope | None = None,
     ) -> None:
-        from ._synchronization import Event
-
         self._coro = coro
         self._cancel_scope = cancel_scope if cancel_scope is not None else CancelScope()
-        self._finished_event = Event()
+        self._finished = False
+        # Created lazily, only when something actually waits for the task to finish
+        self._finished_event: Event | None = None
         self._exception: BaseException | None = None
 
         if name is not None:
@@ -331,7 +335,10 @@ class TaskHandle(Generic[T_co, T_startval_co]):
             else:
                 self._return_value = retval
             finally:
-                self._finished_event.set()
+                self._finished = True
+                if self._finished_event is not None:
+                    self._finished_event.set()
+
                 del self  # Break the reference cycle
 
     def cancel(self) -> None:
@@ -344,7 +351,7 @@ class TaskHandle(Generic[T_co, T_startval_co]):
 
         If the task has already finished, this method has no effect.
         """
-        if not self._finished_event.is_set():
+        if not self._finished:
             self._cancel_scope.cancel()
 
     @property
@@ -368,7 +375,7 @@ class TaskHandle(Generic[T_co, T_startval_co]):
         :attr:`~TaskHandle.Status.CANCELLING`) depending on the exception the task
         raised, if any. No other status transitions will happen.
         """
-        if not self._finished_event.is_set():
+        if not self._finished:
             if self._cancel_scope.cancel_called:
                 return TaskHandle.Status.CANCELLING
             else:
@@ -451,10 +458,19 @@ class TaskHandle(Generic[T_co, T_startval_co]):
         This method will return as soon as the task has finished, no matter how it
         happened.
         """
+        if self._finished:
+            await get_async_backend().checkpoint()
+            return
+
+        if self._finished_event is None:
+            from ._synchronization import Event
+
+            self._finished_event = Event()
+
         await self._finished_event.wait()
 
     def __await__(self) -> Generator[Any, Any, T_co]:
-        yield from self._finished_event.wait().__await__()
+        yield from self.wait().__await__()
         return self.return_value
 
     def __repr__(self) -> str:
