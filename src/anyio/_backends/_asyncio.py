@@ -968,7 +968,11 @@ class TaskGroup(abc.TaskGroup):
             parent_id = id(self.cancel_scope._host_task)
             initial_scope = self.cancel_scope
 
-        spawn_scope = task_status._spawn_scope if task_status is not None else None
+        # Pass the cancel scope explicitly to avoid the backend lookup that would
+        # otherwise be done by TaskHandle to create it
+        spawn_scope = (
+            task_status._spawn_scope if task_status is not None else CancelScope()
+        )
         handle = TaskHandle(coro, name, cancel_scope=spawn_scope)
         loop = asyncio.get_running_loop()
         wrapper_coro = handle._run_coro()
