@@ -42,7 +42,7 @@ from inspect import (
 )
 from io import IOBase
 from os import PathLike
-from queue import Queue
+from queue import SimpleQueue
 from signal import Signals
 from socket import AddressFamily, SocketKind
 from threading import Thread
@@ -1083,9 +1083,9 @@ class WorkerThread(Thread):
         self.workers = workers
         self.idle_workers = idle_workers
         self.loop = root_task._loop
-        self.queue: Queue[
+        self.queue: SimpleQueue[
             tuple[Context, Callable, tuple, asyncio.Future, CancelScope] | None
-        ] = Queue(2)
+        ] = SimpleQueue()
         self.idle_since = AsyncIOBackend.current_time()
         self.stopping = False
 
@@ -1138,7 +1138,6 @@ class WorkerThread(Thread):
                         raise
 
                 del result, exception
-                self.queue.task_done()
                 del item, context, func, args, future, cancel_scope
 
     def stop(self, f: asyncio.Task | None = None) -> None:
