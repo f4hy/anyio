@@ -17,7 +17,7 @@ class TaskInfo:
     :ivar ~collections.abc.Coroutine coro: the coroutine object of the task
     """
 
-    __slots__ = "_name", "coro", "id", "name", "parent_id"
+    __slots__ = "coro", "id", "name", "parent_id"
 
     def __init__(
         self,
@@ -26,8 +26,6 @@ class TaskInfo:
         name: str | None,
         coro: Generator[Any, Any, Any] | Awaitable[Any],
     ):
-        func = get_current_task
-        self._name = f"{func.__module__}.{func.__qualname__}"
         self.id: int = id
         self.parent_id: int | None = parent_id
         self.name: str | None = name
