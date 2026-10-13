@@ -150,7 +150,8 @@ class RunVar(Generic[T]):
 
     @property
     def _current_vars(self) -> dict[RunVar[T], T]:
-        native_token = current_token().native_token
+        # Skip the EventLoopToken wrapper construction in current_token()
+        native_token = get_async_backend().current_token()
         try:
             return _run_vars[native_token]
         except KeyError:
