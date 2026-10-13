@@ -19,6 +19,7 @@ from anyio import (
     CapacityLimiter,
     Event,
     create_task_group,
+    fail_after,
     from_thread,
     to_thread,
     wait_all_tasks_blocked,
@@ -259,19 +260,27 @@ async def test_asyncio_worker_reused_after_cancelled_call(
     def put_cancelled_item(item: tuple[Any, ...]) -> None:
         # Cancel the future before the worker thread gets a chance to dequeue the item
         item[3].cancel()
-        original_put_nowait(item)
+        original_queue.put_nowait(item)
 
-    original_put_nowait = worker.queue.put_nowait
-    mocker.patch.object(worker.queue, "put_nowait", side_effect=put_cancelled_item)
+    def report_result(*args: Any) -> None:
+        original_report_result(*args)
+        result_reported.set()
+
+    result_reported = Event()
+    original_queue = worker.queue
+    original_report_result = worker._report_result
+    queue_proxy = mocker.Mock(put_nowait=put_cancelled_item, get=original_queue.get)
+    mocker.patch.object(worker, "queue", queue_proxy)
+    mocker.patch.object(worker, "_report_result", side_effect=report_result)
     with pytest.raises(asyncio.CancelledError):
         await to_thread.run_sync(int)
 
-    mocker.stopall()
+    # Wait for the worker thread to dequeue the item and for the event loop to run the
+    # callback that returns it to the idle pool
+    with fail_after(5):
+        await result_reported.wait()
 
-    # Wait for the worker thread to dequeue the item and to schedule a callback that
-    # returns it to the idle pool, then let the event loop run that callback
-    worker.queue.join()
-    await wait_all_tasks_blocked()
+    mocker.stopall()
 
     # The next call should reuse that worker rather than start a new one
     assert await to_thread.run_sync(threading.current_thread) is worker
