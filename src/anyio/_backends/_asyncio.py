@@ -714,7 +714,10 @@ class CancelScope(BaseCancelScope):
             self._cancel_called = True
             self._cancel_reason = f"Cancelled via cancel scope {id(self):x}"
             if task := current_task():
-                self._cancel_reason += f" by {task}"
+                # Use the task name rather than repr(task), as formatting the latter
+                # is expensive (it includes the coroutine's source location and the
+                # task's done callbacks)
+                self._cancel_reason += f" by task {task.get_name()!r}"
 
             if reason:
                 self._cancel_reason += f"; reason: {reason}"
