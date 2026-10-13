@@ -399,31 +399,49 @@ class CancelScope(BaseCancelScope):
         "_timeout_handle",
     )
 
-    def __new__(cls, *, deadline: float = math.inf, shield: bool = False) -> Self:
-        return object.__new__(cls)
+    _active: bool
+    _cancel_called: bool
+    _cancel_handle: asyncio.Handle | None
+    _cancel_reason: str | None
+    _cancelled_caught: bool
+    # Value of Task.cancelling() on the host task when the scope was entered
+    _cancelling_at_enter: int
+    _child_scopes: set[CancelScope]
+    _deadline: float
+    _host_task: asyncio.Task | None
+    _parent_scope: CancelScope | None
+    _pending_uncancellations: int | None
+    _shield: bool
+    _tasks: set[asyncio.Task]
+    _timeout_handle: asyncio.TimerHandle | None
 
-    def __init__(self, deadline: float = math.inf, shield: bool = False):
+    # The instance is fully initialized in __new__() (and there is no __init__()) so
+    # that instantiating the public anyio.CancelScope class, whose __new__() returns an
+    # instance of this class, does not cause the initialization to run twice
+    def __new__(cls, *, deadline: float = math.inf, shield: bool = False) -> Self:
         if math.isnan(deadline):
             raise ValueError("deadline must not be NaN")
 
+        self = object.__new__(cls)
         self._deadline = deadline
         self._shield = shield
-        self._parent_scope: CancelScope | None = None
-        self._child_scopes: set[CancelScope] = set()
+        self._parent_scope = None
+        self._child_scopes = set()
         self._cancel_called = False
-        self._cancel_reason: str | None = None
+        self._cancel_reason = None
         self._cancelled_caught = False
         self._active = False
-        self._timeout_handle: asyncio.TimerHandle | None = None
-        self._cancel_handle: asyncio.Handle | None = None
-        self._tasks: set[asyncio.Task] = set()
-        self._host_task: asyncio.Task | None = None
-        # Value of Task.cancelling() on the host task when the scope was entered
+        self._timeout_handle = None
+        self._cancel_handle = None
+        self._tasks = set()
+        self._host_task = None
         self._cancelling_at_enter = 0
         if sys.version_info >= (3, 11):
-            self._pending_uncancellations: int | None = 0
+            self._pending_uncancellations = 0
         else:
             self._pending_uncancellations = None
+
+        return self
 
     def __enter__(self) -> Self:
         if self._active:
@@ -1975,11 +1993,12 @@ _write_events: RunVar[dict[int, asyncio.Future[bool]]] = RunVar("write_events")
 class Event(BaseEvent):
     __slots__ = ("_event",)
 
-    def __new__(cls) -> Self:
-        return object.__new__(cls)
+    _event: asyncio.Event
 
-    def __init__(self) -> None:
+    def __new__(cls) -> Self:
+        self = object.__new__(cls)
         self._event = asyncio.Event()
+        return self
 
     def set(self) -> None:
         self._event.set()
@@ -2000,13 +2019,16 @@ class Event(BaseEvent):
 class Lock(BaseLock):
     __slots__ = "_fast_acquire", "_owner_task", "_waiters"
 
-    def __new__(cls, *, fast_acquire: bool = False) -> Self:
-        return object.__new__(cls)
+    _fast_acquire: bool
+    _owner_task: asyncio.Task | None
+    _waiters: deque[tuple[asyncio.Task, asyncio.Future]]
 
-    def __init__(self, *, fast_acquire: bool = False) -> None:
+    def __new__(cls, *, fast_acquire: bool = False) -> Self:
+        self = object.__new__(cls)
         self._fast_acquire = fast_acquire
-        self._owner_task: asyncio.Task | None = None
-        self._waiters: deque[tuple[asyncio.Task, asyncio.Future]] = deque()
+        self._owner_task = None
+        self._waiters = deque()
+        return self
 
     async def acquire(self) -> None:
         task = cast(asyncio.Task, current_task())
@@ -2172,14 +2194,17 @@ class Semaphore(BaseSemaphore):
 class CapacityLimiter(BaseCapacityLimiter):
     __slots__ = "_borrowers", "_total_tokens", "_wait_queue"
 
-    def __new__(cls, total_tokens: float) -> Self:
-        return object.__new__(cls)
+    _borrowers: set[Any]
+    _total_tokens: float
+    _wait_queue: OrderedDict[Any, asyncio.Event]
 
-    def __init__(self, total_tokens: float):
-        self._total_tokens: float = 0
-        self._borrowers: set[Any] = set()
-        self._wait_queue: OrderedDict[Any, asyncio.Event] = OrderedDict()
+    def __new__(cls, total_tokens: float) -> Self:
+        self = object.__new__(cls)
+        self._total_tokens = 0
+        self._borrowers = set()
+        self._wait_queue = OrderedDict()
         self.total_tokens = total_tokens
+        return self
 
     async def __aenter__(self) -> None:
         await self.acquire()
